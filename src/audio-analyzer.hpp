@@ -31,10 +31,32 @@ struct Features {
 	float treb_att = 1.0f;
 };
 
+// 最新の kSize 個のサンプルを古いものから順に持つ
+class SampleWindow {
+public:
+	static constexpr size_t kSize = 1024;
+
+	SampleWindow() : samples_(kSize) {}
+
+	// 新しいサンプルを古いものから順に足す
+	void push(const StereoSample *samples, size_t count);
+	// 無音のサンプルを count 個足す。音声が届かないときに使う
+	void push_silence(size_t count);
+	// 窓の全体を、kSize 個のサンプルで置き換える
+	void assign(const StereoSample *samples);
+
+	const StereoSample *data() const { return samples_.data(); }
+
+private:
+	void append(const StereoSample *samples, size_t count, bool silence);
+
+	std::vector<StereoSample> samples_;
+};
+
 class AudioAnalyzer {
 public:
 	// FFT に入れるサンプルの数
-	static constexpr size_t kWindow = 1024;
+	static constexpr size_t kWindow = SampleWindow::kSize;
 	// 波形を描く図形に渡すサンプルの数
 	static constexpr size_t kWave = 512;
 	// 音量を 0 とみなす下限 (dBFS)
@@ -42,24 +64,22 @@ public:
 
 	AudioAnalyzer();
 
-	// 新しいサンプルを古いものから順に足す
-	void push(const StereoSample *samples, size_t count);
-	// 無音のサンプルを count 個足す。音声が届かないときに使う
-	void push_silence(size_t count);
+	void push(const StereoSample *samples, size_t count) { window_.push(samples, count); }
+	void push_silence(size_t count) { window_.push_silence(count); }
+	// 解析する窓を、kWindow 個のサンプルで置き換える。複数の入力を足し合わせた窓を渡すときに使う
+	void assign(const StereoSample *samples) { window_.assign(samples); }
 	// 経過時間と入力のサンプリング周波数から特徴量を更新する
 	void update(double seconds, uint32_t sample_rate);
 
 	const Features &features() const { return features_; }
 	// 最新の kWave 個のサンプル。古いものから並ぶ
-	const StereoSample *wave() const { return history_.data() + (kWindow - kWave); }
+	const StereoSample *wave() const { return window_.data() + (kWindow - kWave); }
 	// 相対化する前の帯域ごとの大きさ。ユニットテストで帯域の分け方を確かめるために公開する
 	const std::array<float, 3> &band_energy() const { return imm_; }
 
 private:
-	void append(const StereoSample *samples, size_t count, bool silence);
-
 	MilkdropFFT fft_;
-	std::vector<StereoSample> history_;
+	SampleWindow window_;
 	std::vector<float> mono_;
 	std::vector<float> spectrum_;
 	std::array<float, 3> imm_{};

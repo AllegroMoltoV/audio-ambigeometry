@@ -16,22 +16,22 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
-// 選んだ音声ソースの音に合わせて、幾何学図形が漂う映像ソース。
-// 音声のスレッドの callback はサンプルをリングバッファに書くだけにし、解析と頂点の計算は video_tick で 1 フレームに
-// 1 回行う。頂点は作成時に 1 回だけ作った動的な頂点バッファに書き換えて描く。即時描画は 1 回に 512 頂点が上限のため使わない
+// 選んだ音声 (最大 4 つ) の音に合わせて、幾何学図形が漂う映像ソース。
+// 音は欄ごとの AudioInput が受け取り、足し合わせた窓を video_tick で 1 フレームに 1 回解析して頂点を作る。
+// 頂点は作成時に 1 回だけ作った動的な頂点バッファに書き換えて描く。即時描画は 1 回に 512 頂点が上限のため使わない
 
 #include "audio-analyzer.hpp"
+#include "audio-input.hpp"
 #include "geometry.hpp"
-#include "sample-ring.hpp"
 
 #include <obs-module.h>
 #include <plugin-support.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
-#include <cstring>
-#include <mutex>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -41,7 +41,11 @@ using namespace ambigeometry;
 
 constexpr const char *kSourceId = "audio_ambigeometry_source";
 
-constexpr const char *kAudioSource = "audio_source";
+constexpr size_t kInputCount = 4;
+constexpr const char *kAudioSources[kInputCount] = {"audio_source_1", "audio_source_2", "audio_source_3",
+						    "audio_source_4"};
+constexpr const char *kAudioSourceLabels[kInputCount] = {"AudioSource1", "AudioSource2", "AudioSource3",
+							 "AudioSource4"};
 constexpr const char *kPattern = "pattern";
 constexpr const char *kShapeCount = "shape_count";
 constexpr const char *kSymmetry = "symmetry";
@@ -60,13 +64,6 @@ constexpr int kMaxTrail = 98;
 constexpr int kDefaultTrail = 90;
 // 減衰のあとに引く値。8 ビットの色で、薄い残像が丸めで消えずに残らないようにする
 constexpr float kFadeStep = 1.5f / 255.0f;
-// 音声が届かない時間がこれを超えたら、無音として扱う。音声は数十ミリ秒ごとにまとめて届くため、
-// 1 フレーム届かないだけでは無音にしない
-constexpr double kSilenceAfter = 0.1;
-// 選んだ音声ソースが見つからないときに、名前から引き直す間隔
-constexpr double kResolveInterval = 1.0;
-// 1 フレームで読むサンプルの上限
-constexpr size_t kReadMax = 4096;
 
 int get_int_clamped(obs_data_t *settings, const char *name, int min, int max)
 {
@@ -75,8 +72,11 @@ int get_int_clamped(obs_data_t *settings, const char *name, int min, int max)
 
 class AmbigeometrySource final {
 public:
-	AmbigeometrySource(obs_data_t *settings, obs_source_t *self) : self_(self), scratch_(kReadMax)
+	AmbigeometrySource(obs_data_t *settings, obs_source_t *self) : self_(self), mix_(AudioAnalyzer::kWindow)
 	{
+		for (auto &input : inputs_) {
+			input = std::make_unique<AudioInput>();
+		}
 		vertices_.resize(kMaxVertices);
 
 		obs_enter_graphics();
@@ -109,7 +109,9 @@ public:
 	~AmbigeometrySource()
 	{
 		signal_handler_disconnect(obs_get_signal_handler(), "source_rename", OnSourceRename, this);
-		Detach();
+		for (auto &input : inputs_) {
+			input->Detach();
+		}
 
 		obs_enter_graphics();
 		gs_texrender_destroy(trails_[0]);
@@ -124,9 +126,8 @@ public:
 
 	void Update(obs_data_t *settings)
 	{
-		{
-			std::lock_guard<std::mutex> lock(name_mutex_);
-			audio_name_ = obs_data_get_string(settings, kAudioSource);
+		for (size_t i = 0; i < kInputCount; ++i) {
+			inputs_[i]->SetName(obs_data_get_string(settings, kAudioSources[i]));
 		}
 		GeometrySettings geometry;
 		geometry.pattern = static_cast<Pattern>(get_int_clamped(settings, kPattern, 0, 2));
@@ -141,41 +142,31 @@ public:
 		height_ = static_cast<uint32_t>(get_int_clamped(settings, kHeight, kMinSize, kMaxSize));
 	}
 
-	std::string AudioName()
-	{
-		std::lock_guard<std::mutex> lock(name_mutex_);
-		return audio_name_;
-	}
+	std::string AudioName(size_t index) { return inputs_[index]->Name(); }
 
 	uint32_t Width() const { return width_; }
 	uint32_t Height() const { return height_; }
 
 	void Tick(float seconds)
 	{
-		ResolveAudioSource(seconds);
-
 		obs_audio_info audio_info = {};
 		const uint32_t sample_rate = obs_get_audio_info(&audio_info) ? audio_info.samples_per_sec : 48000;
 
-		size_t total = 0;
-		if (weak_audio_) {
-			size_t n;
-			while ((n = ring_.read(cursor_, scratch_.data(), kReadMax)) > 0) {
-				analyzer_.push(scratch_.data(), n);
-				total += n;
-				if (n < kReadMax) {
-					break;
-				}
+		// 欄ごとの窓に音量を掛けて足し合わせ、まとめて 1 回だけ解析する
+		std::fill(mix_.begin(), mix_.end(), StereoSample{});
+		for (auto &input : inputs_) {
+			input->Tick(seconds, sample_rate);
+			if (!input->Active()) {
+				continue;
+			}
+			const StereoSample *window = input->Window().data();
+			const float gain = input->Gain();
+			for (size_t i = 0; i < mix_.size(); ++i) {
+				mix_[i].left += window[i].left * gain;
+				mix_[i].right += window[i].right * gain;
 			}
 		}
-		if (total > 0) {
-			since_data_ = 0.0;
-		} else {
-			since_data_ += seconds;
-			if (since_data_ > kSilenceAfter) {
-				analyzer_.push_silence(static_cast<size_t>(std::lround(seconds * sample_rate)));
-			}
-		}
+		analyzer_.assign(mix_.data());
 		analyzer_.update(seconds, sample_rate);
 
 		time_ += seconds;
@@ -230,18 +221,6 @@ public:
 	}
 
 private:
-	static void OnAudio(void *param, obs_source_t *, const audio_data *audio, bool muted)
-	{
-		auto *self = static_cast<AmbigeometrySource *>(param);
-		// ミュート中も callback は呼ばれる。音として扱わないよう 0 を書く
-		if (muted) {
-			self->ring_.write(nullptr, nullptr, audio->frames);
-			return;
-		}
-		self->ring_.write(reinterpret_cast<const float *>(audio->data[0]),
-				  reinterpret_cast<const float *>(audio->data[1]), audio->frames);
-	}
-
 	static void OnSourceRename(void *param, calldata_t *data)
 	{
 		auto *self = static_cast<AmbigeometrySource *>(param);
@@ -250,75 +229,13 @@ private:
 		if (!prev_name || !new_name) {
 			return;
 		}
-		{
-			std::lock_guard<std::mutex> lock(self->name_mutex_);
-			if (self->audio_name_ != prev_name) {
-				return;
+		for (size_t i = 0; i < kInputCount; ++i) {
+			if (self->inputs_[i]->Rename(prev_name, new_name)) {
+				obs_data_t *settings = obs_source_get_settings(self->self_);
+				obs_data_set_string(settings, kAudioSources[i], new_name);
+				obs_data_release(settings);
 			}
-			self->audio_name_ = new_name;
 		}
-		obs_data_t *settings = obs_source_get_settings(self->self_);
-		obs_data_set_string(settings, kAudioSource, new_name);
-		obs_data_release(settings);
-	}
-
-	// 選んだ名前と付けている音声ソースを合わせる
-	void ResolveAudioSource(float seconds)
-	{
-		std::string name;
-		{
-			std::lock_guard<std::mutex> lock(name_mutex_);
-			name = audio_name_;
-		}
-
-		if (weak_audio_) {
-			obs_source_t *source = obs_weak_source_get_source(weak_audio_);
-			const bool same = source && name == obs_source_get_name(source);
-			obs_source_release(source);
-			if (same) {
-				return;
-			}
-			Detach();
-		}
-		if (name.empty()) {
-			return;
-		}
-
-		since_resolve_ += seconds;
-		if (attempted_ && since_resolve_ < kResolveInterval) {
-			return;
-		}
-		attempted_ = true;
-		since_resolve_ = 0.0;
-
-		obs_source_t *source = obs_get_source_by_name(name.c_str());
-		if (!source) {
-			return;
-		}
-		if ((obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO) != 0) {
-			// 付ける前の古いサンプルを読まないよう、読む位置を書き込みの位置へ進める
-			StereoSample discard[1];
-			while (ring_.read(cursor_, discard, 1) > 0) {
-			}
-			obs_source_add_audio_capture_callback(source, OnAudio, this);
-			weak_audio_ = obs_source_get_weak_source(source);
-		}
-		obs_source_release(source);
-	}
-
-	void Detach()
-	{
-		if (!weak_audio_) {
-			return;
-		}
-		obs_source_t *source = obs_weak_source_get_source(weak_audio_);
-		if (source) {
-			obs_source_remove_audio_capture_callback(source, OnAudio, this);
-			obs_source_release(source);
-		}
-		obs_weak_source_release(weak_audio_);
-		weak_audio_ = nullptr;
-		attempted_ = false;
 	}
 
 	void DrawLines()
@@ -370,16 +287,8 @@ private:
 
 	obs_source_t *self_;
 
-	std::mutex name_mutex_;
-	std::string audio_name_;
-	obs_weak_source_t *weak_audio_ = nullptr;
-	bool attempted_ = false;
-	double since_resolve_ = 0.0;
-
-	SampleRing ring_;
-	uint64_t cursor_ = 0;
-	std::vector<StereoSample> scratch_;
-	double since_data_ = 0.0;
+	std::array<std::unique_ptr<AudioInput>, kInputCount> inputs_;
+	std::vector<StereoSample> mix_;
 	AudioAnalyzer analyzer_;
 
 	GeometrySettings geometry_;
@@ -437,15 +346,19 @@ obs_properties_t *get_properties(void *data)
 {
 	obs_properties_t *props = obs_properties_create();
 
-	obs_property_t *audio = obs_properties_add_list(props, kAudioSource, obs_module_text("AudioSource"),
-							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-	obs_property_list_add_string(audio, obs_module_text("AudioSource.None"), "");
-	obs_enum_sources(add_audio_source, audio);
-	// 選んだソースが今は無いときも、設定の名前を一覧に残す。プロパティを開いただけで選択が消えないようにするため
-	if (data) {
-		const std::string current = static_cast<AmbigeometrySource *>(data)->AudioName();
-		if (!current.empty() && !list_has_string(audio, current)) {
-			obs_property_list_add_string(audio, current.c_str(), current.c_str());
+	for (size_t i = 0; i < kInputCount; ++i) {
+		obs_property_t *audio = obs_properties_add_list(props, kAudioSources[i],
+								obs_module_text(kAudioSourceLabels[i]),
+								OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+		obs_property_list_add_string(audio, obs_module_text("AudioSource.None"), "");
+		obs_property_list_add_string(audio, obs_module_text("AudioSource.FinalMix"), kFinalMix);
+		obs_enum_sources(add_audio_source, audio);
+		// 選んだソースが今は無いときも、設定の名前を一覧に残す。プロパティを開いただけで選択が消えないようにするため
+		if (data) {
+			const std::string current = static_cast<AmbigeometrySource *>(data)->AudioName(i);
+			if (!current.empty() && !list_has_string(audio, current)) {
+				obs_property_list_add_string(audio, current.c_str(), current.c_str());
+			}
 		}
 	}
 
@@ -456,8 +369,8 @@ obs_properties_t *get_properties(void *data)
 	obs_property_list_add_int(pattern, obs_module_text("Pattern.Lissajous"), static_cast<int>(Pattern::Lissajous));
 	obs_property_set_modified_callback(pattern, pattern_modified);
 
-	obs_properties_add_int_slider(props, kShapeCount, obs_module_text("ShapeCount"), kMinShapeCount,
-				      kMaxShapeCount, 1);
+	obs_properties_add_int_slider(props, kShapeCount, obs_module_text("ShapeCount"), kMinShapeCount, kMaxShapeCount,
+				      1);
 	obs_properties_add_int_slider(props, kSymmetry, obs_module_text("Symmetry"), kMinSymmetry, kMaxSymmetry, 1);
 	obs_property_t *trail = obs_properties_add_int_slider(props, kTrail, obs_module_text("Trail"), 0, kMaxTrail, 1);
 	obs_property_int_set_suffix(trail, "%");
@@ -491,7 +404,9 @@ extern "C" void register_ambigeometry_source(void)
 		static_cast<AmbigeometrySource *>(data)->Update(settings);
 	};
 	info.get_defaults = [](obs_data_t *settings) {
-		obs_data_set_default_string(settings, kAudioSource, "");
+		for (const char *name : kAudioSources) {
+			obs_data_set_default_string(settings, name, "");
+		}
 		obs_data_set_default_int(settings, kPattern, static_cast<int>(Pattern::Polygons));
 		obs_data_set_default_int(settings, kShapeCount, 6);
 		obs_data_set_default_int(settings, kSymmetry, 1);

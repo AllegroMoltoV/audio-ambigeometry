@@ -111,7 +111,8 @@ void build_polygons(Builder &b, const GeometrySettings &s, const Features &f, do
 		float px = 0.0f, py = 0.0f;
 		for (int k = 0; k <= sides; ++k) {
 			const float a = rotation + kTwoPi * static_cast<float>(k % sides) / static_cast<float>(sides);
-			const float r = radius * (1.0f + wobble * std::sin(static_cast<float>(k % sides) * 1.7f + t * 2.0f));
+			const float r =
+				radius * (1.0f + wobble * std::sin(static_cast<float>(k % sides) * 1.7f + t * 2.0f));
 			const float x = cx + r * std::cos(a);
 			const float y = cy + r * std::sin(a);
 			if (k > 0) {
@@ -135,8 +136,8 @@ float wave_mono(const StereoSample *wave, size_t wave_count, int index, int poin
 	return 0.5f * (wave[at].left + wave[at].right);
 }
 
-void build_ring(Builder &b, const GeometrySettings &s, const Features &f, const StereoSample *wave,
-		size_t wave_count, double time, float unit, float hue, float value, float alpha, float scale)
+void build_ring(Builder &b, const GeometrySettings &s, const Features &f, const StereoSample *wave, size_t wave_count,
+		double time, float unit, float hue, float value, float alpha, float scale)
 {
 	const float t = static_cast<float>(time);
 	const float base = unit * 0.45f * scale * (0.9f + 0.1f * relative(f.bass_att));
@@ -148,9 +149,8 @@ void build_ring(Builder &b, const GeometrySettings &s, const Features &f, const 
 		const float r = base + unit * 0.15f * sample;
 		const float x = r * std::cos(a);
 		const float y = r * std::sin(a);
-		const uint32_t color =
-			hsv_color(hue + static_cast<float>(k) / static_cast<float>(kRingPoints) * 0.25f, s.saturation,
-				  value, alpha);
+		const uint32_t color = hsv_color(hue + static_cast<float>(k) / static_cast<float>(kRingPoints) * 0.25f,
+						 s.saturation, value, alpha);
 		if (k == 0) {
 			first_x = x;
 			first_y = y;
@@ -165,8 +165,8 @@ void build_ring(Builder &b, const GeometrySettings &s, const Features &f, const 
 	}
 }
 
-void build_lissajous(Builder &b, const GeometrySettings &s, const StereoSample *wave, size_t wave_count,
-		     double time, float unit, float hue, float value, float alpha, float scale)
+void build_lissajous(Builder &b, const GeometrySettings &s, const StereoSample *wave, size_t wave_count, double time,
+		     float unit, float hue, float value, float alpha, float scale)
 {
 	if (wave_count == 0) {
 		return;
@@ -203,8 +203,8 @@ void build_lissajous(Builder &b, const GeometrySettings &s, const StereoSample *
 		}
 		const float x = gain * (u * cr - v * sr);
 		const float y = -gain * (u * sr + v * cr);
-		const uint32_t color = hsv_color(hue + static_cast<float>(k) / kLissajousPoints * 0.25f,
-						 s.saturation, value, alpha);
+		const uint32_t color =
+			hsv_color(hue + static_cast<float>(k) / kLissajousPoints * 0.25f, s.saturation, value, alpha);
 		if (k > 0) {
 			b.line(px, py, x, y, color);
 		}

@@ -22,45 +22,51 @@ float adjust_rate(float rate, double fps)
 
 } // namespace
 
-AudioAnalyzer::AudioAnalyzer() : fft_(kWindow, kWindow / 2, true), history_(kWindow), mono_(kWindow) {}
-
-void AudioAnalyzer::append(const StereoSample *samples, size_t count, bool silence)
+void SampleWindow::append(const StereoSample *samples, size_t count, bool silence)
 {
-	if (count >= kWindow) {
+	if (count >= kSize) {
 		if (silence) {
-			std::fill(history_.begin(), history_.end(), StereoSample{});
+			std::fill(samples_.begin(), samples_.end(), StereoSample{});
 		} else {
-			std::copy(samples + (count - kWindow), samples + count, history_.begin());
+			std::copy(samples + (count - kSize), samples + count, samples_.begin());
 		}
 		return;
 	}
-	std::copy(history_.begin() + static_cast<std::ptrdiff_t>(count), history_.end(), history_.begin());
-	auto tail = history_.begin() + static_cast<std::ptrdiff_t>(kWindow - count);
+	std::copy(samples_.begin() + static_cast<std::ptrdiff_t>(count), samples_.end(), samples_.begin());
+	auto tail = samples_.begin() + static_cast<std::ptrdiff_t>(kSize - count);
 	if (silence) {
-		std::fill(tail, history_.end(), StereoSample{});
+		std::fill(tail, samples_.end(), StereoSample{});
 	} else {
 		std::copy(samples, samples + count, tail);
 	}
 }
 
-void AudioAnalyzer::push(const StereoSample *samples, size_t count)
+void SampleWindow::push(const StereoSample *samples, size_t count)
 {
 	append(samples, count, false);
 }
 
-void AudioAnalyzer::push_silence(size_t count)
+void SampleWindow::push_silence(size_t count)
 {
 	append(nullptr, count, true);
 }
+
+void SampleWindow::assign(const StereoSample *samples)
+{
+	std::copy(samples, samples + kSize, samples_.begin());
+}
+
+AudioAnalyzer::AudioAnalyzer() : fft_(kWindow, kWindow / 2, true), mono_(kWindow) {}
 
 void AudioAnalyzer::update(double seconds, uint32_t sample_rate)
 {
 	double fps = seconds > 0.0 ? 1.0 / seconds : 30.0;
 	fps = std::clamp(fps, 15.0, 144.0);
 
+	const StereoSample *history = window_.data();
 	double sum_squares = 0.0;
 	for (size_t i = 0; i < kWindow; ++i) {
-		const float m = 0.5f * (history_[i].left + history_[i].right);
+		const float m = 0.5f * (history[i].left + history[i].right);
 		mono_[i] = m;
 		sum_squares += static_cast<double>(m) * m;
 	}

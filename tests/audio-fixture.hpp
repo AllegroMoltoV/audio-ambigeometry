@@ -44,7 +44,8 @@ inline void register_audio_source()
 	info.create = [](obs_data_t *, obs_source_t *source) -> void * {
 		return source;
 	};
-	info.destroy = [](void *) {};
+	info.destroy = [](void *) {
+	};
 	obs_register_source(&info);
 }
 
@@ -84,8 +85,8 @@ inline void output(obs_source_t *source, const Signal &signal, uint64_t &positio
 	for (uint32_t i = 0; i < frames; ++i) {
 		const double t = static_cast<double>(position + i) / kSampleRate;
 		left[i] = static_cast<float>(signal.left(t, signal.frequency, signal.amplitude));
-		right[i] = static_cast<float>((signal.right ? signal.right : signal.left)(t, signal.frequency,
-											 signal.amplitude));
+		right[i] = static_cast<float>(
+			(signal.right ? signal.right : signal.left)(t, signal.frequency, signal.amplitude));
 	}
 	position += frames;
 	obs_source_audio audio = {};
@@ -99,18 +100,35 @@ inline void output(obs_source_t *source, const Signal &signal, uint64_t &positio
 	obs_source_output_audio(source, &audio);
 }
 
-// Feeds the signal for count video frames, about one video frame of audio per frame. Returns false if the graphics
-// thread stops advancing.
-inline bool pump(obs_source_t *source, const Signal &signal, uint64_t &position, int count)
+// A source and the signal to feed it.
+struct Feed {
+	obs_source_t *source = nullptr;
+	Signal signal;
+	uint64_t position = 0;
+};
+
+// Feeds every source for count video frames, about one video frame of audio per frame. Returns false if the
+// graphics thread stops advancing.
+inline bool pump_all(std::vector<Feed> &feeds, int count)
 {
 	const uint32_t frames_per_video_frame = kSampleRate / 60;
 	for (int i = 0; i < count; ++i) {
-		output(source, signal, position, frames_per_video_frame);
+		for (Feed &feed : feeds) {
+			output(feed.source, feed.signal, feed.position, frames_per_video_frame);
+		}
 		if (!render_test::wait_frames(1)) {
 			return false;
 		}
 	}
 	return true;
+}
+
+inline bool pump(obs_source_t *source, const Signal &signal, uint64_t &position, int count)
+{
+	std::vector<Feed> feeds = {Feed{source, signal, position}};
+	const bool ok = pump_all(feeds, count);
+	position = feeds[0].position;
+	return ok;
 }
 
 } // namespace audio_test
