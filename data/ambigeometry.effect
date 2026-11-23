@@ -1,0 +1,88 @@
+// Audio Ambigeometry
+// Lines: 頂点の色で線を描く。不透明度を掛けた色 (premultiplied) を出す。
+// Fade: 前のフレームを減衰させて写す。8 ビットの色では掛け算の丸めで薄い値が消えずに残るため、
+//       掛けたあとに fade_step を引く。
+// Copy: 不透明度を掛けた色のテクスチャをそのまま写す。
+// OpenGL への変換で失敗しないよう、型の変換は float(x) の形で書く。
+
+uniform float4x4 ViewProj;
+uniform texture2d image;
+uniform float decay;
+uniform float fade_step;
+
+sampler_state point_sampler {
+    Filter   = Point;
+    AddressU = Clamp;
+    AddressV = Clamp;
+};
+
+struct VertColor {
+    float4 pos   : POSITION;
+    float4 color : COLOR;
+};
+
+struct VertTex {
+    float4 pos : POSITION;
+    float2 uv  : TEXCOORD0;
+};
+
+VertColor VSLines(VertColor v_in)
+{
+    VertColor v_out;
+    v_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+    v_out.color = v_in.color;
+    return v_out;
+}
+
+float4 PSLines(VertColor v_in) : TARGET
+{
+    return float4(v_in.color.rgb * v_in.color.a, v_in.color.a);
+}
+
+VertTex VSTex(VertTex v_in)
+{
+    VertTex v_out;
+    v_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+    v_out.uv = v_in.uv;
+    return v_out;
+}
+
+float4 PSFade(VertTex v_in) : TARGET
+{
+    float4 c = image.Sample(point_sampler, v_in.uv);
+    float a = max(c.a * decay - fade_step, 0.0);
+    float3 rgb = min(c.rgb * decay, float3(a, a, a));
+    return float4(rgb, a);
+}
+
+float4 PSCopy(VertTex v_in) : TARGET
+{
+    return image.Sample(point_sampler, v_in.uv);
+}
+
+technique Lines
+{
+    pass
+    {
+        vertex_shader = VSLines(v_in);
+        pixel_shader  = PSLines(v_in);
+    }
+}
+
+technique Fade
+{
+    pass
+    {
+        vertex_shader = VSTex(v_in);
+        pixel_shader  = PSFade(v_in);
+    }
+}
+
+technique Copy
+{
+    pass
+    {
+        vertex_shader = VSTex(v_in);
+        pixel_shader  = PSCopy(v_in);
+    }
+}

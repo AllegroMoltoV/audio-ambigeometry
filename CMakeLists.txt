@@ -36,7 +36,15 @@ endif()
 
 target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_17)
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/ambigeometry-source.cpp)
+target_sources(
+  ${CMAKE_PROJECT_NAME}
+  PRIVATE
+    src/plugin-main.c
+    src/ambigeometry-source.cpp
+    src/audio-analyzer.cpp
+    src/geometry.cpp
+    src/milkdrop-fft.cpp
+)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
@@ -48,17 +56,8 @@ set(RENDER_TEST_DEPS_VERSION "2025-07-11" CACHE STRING "Prebuilt obs-deps versio
 # tests/render-test.cpp が受け付けるシナリオの名前。render-test.yaml の SCENARIOS と同じにする
 set(
   RENDER_TEST_SCENARIOS
-  horizontal
-  vertical
-  rotation
-  period
-  softness
-  softness-over-100
-  defaults
-  transparent-background
-  still
-  flow
-  custom-size
+  sound
+  silence
 )
 
 # Windows では常にビルドする。macOS と Linux では CI の render-test.yaml が有効にする
