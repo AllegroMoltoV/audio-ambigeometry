@@ -1,0 +1,7 @@
+{
+  "name": "オーディオアンビジオメトリ / Audio Ambigeometry",
+  "os": ["windows", "linux"],
+  "paidFeatures": false,
+  "paidServices": [],
+  "restrictedAssets": false
+}
