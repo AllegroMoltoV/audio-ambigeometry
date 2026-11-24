@@ -46,22 +46,34 @@ uint32_t hsv_color(float h, float s, float v, float a)
 	float r = v, g = t, b = p;
 	switch (sector) {
 	case 0:
-		r = v, g = t, b = p;
+		r = v;
+		g = t;
+		b = p;
 		break;
 	case 1:
-		r = q, g = v, b = p;
+		r = q;
+		g = v;
+		b = p;
 		break;
 	case 2:
-		r = p, g = v, b = t;
+		r = p;
+		g = v;
+		b = t;
 		break;
 	case 3:
-		r = p, g = q, b = v;
+		r = p;
+		g = q;
+		b = v;
 		break;
 	case 4:
-		r = t, g = p, b = v;
+		r = t;
+		g = p;
+		b = v;
 		break;
 	default:
-		r = v, g = p, b = q;
+		r = v;
+		g = p;
+		b = q;
 		break;
 	}
 	return (to_byte(a) << 24) | (to_byte(b) << 16) | (to_byte(g) << 8) | to_byte(r);
