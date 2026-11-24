@@ -18,6 +18,7 @@ on:
       - 'src/**'
       - 'data/**'
       - 'tests/**'
+      - 'buildspec.json'
       - '.github/workflows/render-test.yaml'
 permissions:
   contents: read
@@ -25,7 +26,7 @@ env:
   PLUGIN_NAME: audio-ambigeometry
   OBS_VERSION: 31.1.1
   # Keep this list equal to RENDER_TEST_SCENARIOS in CMakeLists.txt
-  SCENARIOS: horizontal vertical rotation period softness softness-over-100 defaults transparent-background still flow custom-size
+  SCENARIOS: sound silence patterns symmetry trail muted rename late-source max-settings two-inputs mute-one volume-zero final-mix
 jobs:
   windows-render:
     name: Render on Windows (D3D11)
@@ -55,7 +56,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path test-images | Out-Null
           $env:RENDER_TEST_OUTPUT_DIR = "$PWD\test-images"
-          ctest --test-dir build_x64 -C RelWithDebInfo -R d3d11 --output-on-failure --no-tests=error 2>&1 |
+          ctest --test-dir build_x64 -C RelWithDebInfo -R '^analysis$|d3d11' --output-on-failure --no-tests=error 2>&1 |
             Tee-Object -FilePath render-windows.log
           exit $LASTEXITCODE
 
@@ -98,7 +99,11 @@ jobs:
       - name: Build render test
         run: |
           cmake -S . -B build_x86_64 -DENABLE_RENDER_TESTS=ON
-          cmake --build build_x86_64 --config RelWithDebInfo --target render-test
+          cmake --build build_x86_64 --config RelWithDebInfo --target render-test analysis-test
+
+      # The unit test of the audio analysis and the geometry does not use OBS
+      - name: Analysis test
+        run: ctest --test-dir build_x86_64 -C RelWithDebInfo -R '^analysis$' --output-on-failure --no-tests=error
 
       # libobs-opengl and the libobs data come from the obs-studio package that the template installs from the PPA
       - name: Render
