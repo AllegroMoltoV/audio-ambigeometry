@@ -74,6 +74,16 @@ GitHub Actions 上の Ubuntu 24.04 (Mesa の OpenGL) で、音に反応した図
 
 macOS 向けのビルドは GitHub Actions で生成していますが、作者は macOS 版を提供していません。ソースからのビルドは「Build / ビルド」を参照してください。
 
+### Verifying downloads / ダウンロードの検証
+
+Releases のファイルは、このリポジトリの GitHub Actions でビルドし、ビルドの来歴の証明 (artifact attestation) を付けています。[GitHub CLI](https://cli.github.com/) で、ダウンロードしたファイルがこのリポジトリのワークフローで作られたことを確かめられます。
+
+Every release file is built by the GitHub Actions workflow of this repository and carries a build provenance attestation. With the GitHub CLI, you can confirm that a downloaded file was built by this repository's workflow.
+
+```bash
+gh attestation verify <ダウンロードしたファイル / downloaded file> --repo AllegroMoltoV/audio-ambigeometry
+```
+
 ## Usage / 使い方
 
 1. OBS Studio を起動
