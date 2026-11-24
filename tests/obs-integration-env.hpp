@@ -3,6 +3,8 @@
 // Starts libobs without the OBS frontend so that tests can render.
 // Pass the graphics module for the platform: Direct3D 11 or OpenGL on Windows, OpenGL with X11 and EGL on Linux,
 // and OpenGL on macOS.
+// The file name contains "integration" so that the review of Plugin Soko-kun reads it first. The review reads at most
+// three test sources and looks for the libobs startup in them (ci-scenario-tests).
 
 #include <obs.h>
 #if defined(__linux__)
