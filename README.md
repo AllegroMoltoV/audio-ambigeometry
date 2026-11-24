@@ -6,6 +6,8 @@ An input source plugin for OBS Studio that draws meaningless geometric shapes dr
 
 [配信プラグイン倉庫くん](https://soko-kun.allegromoltov.jp/plugins/allegromoltov/audio-ambigeometry) にも掲載しています。 / Also listed on [Plugin Soko-kun](https://soko-kun.allegromoltov.jp/plugins/allegromoltov/audio-ambigeometry?lang=en).
 
+![オーディオアンビジオメトリのプロパティを変えながら、音に合わせて線の図形が動く様子](docs/images/audio-ambigeometry.gif)
+
 ## Features / 機能
 
 OBS Studio の音声ソースや最終ミックスの音を受け取り、その音に合わせて線で描いた図形を動かす入力ソースです。音が大きいほど図形は大きく明るくなり、低音・中音・高音の変化で図形が揺れたり回ったりします。色相は時間とともにゆっくり巡ります。音が止まると図形は小さく薄くなり、やがて透明になります。背景は透明なので、ほかの映像の上に重ねられます。
@@ -24,7 +26,7 @@ An input source that receives sound from OBS Studio audio sources or the final m
 
 ### Windows
 
-Windows 版は OBS Studio 31.1 以降向けにビルドしています。
+Windows 版は OBS Studio 31.1 以降向けにビルドしています。OBS Studio 33.0.3 で、導入、音への反応、ミュート、音声ソースの名前の変更への追従、再起動後の設定の保持を確認しています。
 
 #### 通常版 OBS への導入
 
@@ -149,11 +151,15 @@ Windows では、音の解析のユニットテストと、描画テストを Di
 
 ### 日本語
 
-v1.0.0 の制作では、Anthropic Claude Code を、調査、ソースコード、ビルド設定、テスト、文書を含むほぼすべての工程で使用しました。コード読解による厳密な人間レビューは実施していません。
+v1.0.0 の制作では、Anthropic Claude Code を、調査、ソースコード、ビルド設定、テスト、文書を含むほぼすべての工程で使用しました。リソースアイコンは、Claude Code が作成した SVG の案から、作者本人が選びました。
+
+作者本人は Windows 上の OBS Studio でユーザーテストを実施しました。コード読解による厳密な人間レビューは実施していません。概要説明欄のアニメーション GIF は、作者本人が ScreenToGif で画面収録したもので、生成 AI を使用していません。容量を収めるための縮小は、Claude Code が ffmpeg で行いました。
 
 ### English
 
-Anthropic Claude Code was used for almost the entire development process of v1.0.0, including research, source code, build configuration, tests, and documentation. No rigorous human review of the source code was performed.
+Anthropic Claude Code was used for almost the entire development process of v1.0.0, including research, source code, build configuration, tests, and documentation. The resource icon was chosen by the author from SVG candidates that Claude Code drew.
+
+The author performed user testing in OBS Studio on Windows but did not perform a rigorous human review of the source code. The animated GIF in the description was screen-recorded by the author using ScreenToGif, without generative AI. Claude Code reduced its file size with ffmpeg.
 
 ## License / ライセンス
 
